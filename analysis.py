@@ -7,8 +7,6 @@ from scipy.signal import find_peaks, peak_widths
 
 from typing import Literal
 
-from glob import glob
-
 from tqdm import tqdm
 
 import os
@@ -16,9 +14,9 @@ import os
 class TwinBeam:
 
     # superresolution: how finely to bin the clusters (=1 for camera resolution (256x256))
-    def __init__(self, image : TpxImage, channel_a_mask : np.ndarray, channel_b_mask : np.ndarray, superresolution : int = 1):
-        if image.num_coincidences() == 0:
-            raise RuntimeError("Image has no coincidences; make sure coincidence window is set before calling TwinBeam()")
+    def __init__(self, image : TpxImage, channel_a_mask : np.ndarray, channel_b_mask : np.ndarray, superresolution : int = 1, ignore_coincs=False):
+        if image.num_coincidences() == 0 and not ignore_coincs:
+            raise ("Image has no coincidences; make sure coincidence window is set before calling TwinBeam()")
     
         sz = TPX_SIZE * superresolution
 
@@ -35,22 +33,23 @@ class TwinBeam:
         self._x_bins = np.floor(self._image._centroid_x * superresolution).astype(int)
         self._y_bins = np.floor(self._image._centroid_y * superresolution).astype(int)
         
-        self._coincs_aa = np.logical_and(
-            self._mask_a[self._x_bins[self._coincs[:,0]], self._y_bins[self._coincs[:,0]]],
-            self._mask_a[self._x_bins[self._coincs[:,1]], self._y_bins[self._coincs[:,1]]]
-        )
-        self._coincs_bb = np.logical_and(
-            self._mask_b[self._x_bins[self._coincs[:,0]], self._y_bins[self._coincs[:,0]]],
-            self._mask_b[self._x_bins[self._coincs[:,1]], self._y_bins[self._coincs[:,1]]]
-        )
-        self._coincs_ab = np.logical_and(
-            self._mask_a[self._x_bins[self._coincs[:,0]], self._y_bins[self._coincs[:,0]]],
-            self._mask_b[self._x_bins[self._coincs[:,1]], self._y_bins[self._coincs[:,1]]]
-        )
-        self._coincs_ba = np.logical_and(
-            self._mask_b[self._x_bins[self._coincs[:,0]], self._y_bins[self._coincs[:,0]]],
-            self._mask_a[self._x_bins[self._coincs[:,1]], self._y_bins[self._coincs[:,1]]]
-        )
+        if not ignore_coincs:
+            self._coincs_aa = np.logical_and(
+                self._mask_a[self._x_bins[self._coincs[:,0]], self._y_bins[self._coincs[:,0]]],
+                self._mask_a[self._x_bins[self._coincs[:,1]], self._y_bins[self._coincs[:,1]]]
+            )
+            self._coincs_bb = np.logical_and(
+                self._mask_b[self._x_bins[self._coincs[:,0]], self._y_bins[self._coincs[:,0]]],
+                self._mask_b[self._x_bins[self._coincs[:,1]], self._y_bins[self._coincs[:,1]]]
+            )
+            self._coincs_ab = np.logical_and(
+                self._mask_a[self._x_bins[self._coincs[:,0]], self._y_bins[self._coincs[:,0]]],
+                self._mask_b[self._x_bins[self._coincs[:,1]], self._y_bins[self._coincs[:,1]]]
+            )
+            self._coincs_ba = np.logical_and(
+                self._mask_b[self._x_bins[self._coincs[:,0]], self._y_bins[self._coincs[:,0]]],
+                self._mask_a[self._x_bins[self._coincs[:,1]], self._y_bins[self._coincs[:,1]]]
+            )
 
     def coincidence_indices(self, channels:Literal["ab", "aa", "bb"] = "ab"):
         if channels == "ab":
@@ -114,11 +113,11 @@ class BiphotonCalibration:
                        pixel_to_wl_2 : callable = None, wl_to_pixel_2 : callable = None):
         self._is_trivial = (pixel_to_wl_1 is None or wl_to_pixel_1 is None or pixel_to_wl_2 is None or wl_to_pixel_2 is None)
 
-        if self._is_trivial:
-            self._pixel_to_f_1 = lambda x: x
-            self._f_to_pixel_1 = lambda x: x
-            self._pixel_to_f_2 = lambda x: x
-            self._f_to_pixel_2 = lambda x: x
+        if self._is_trivial: # +1 is so that no bin gives a wavelength of zero
+            self._pixel_to_wl_1 = lambda x: x+1
+            self._wl_to_pixel_1 = lambda x: x-1
+            self._pixel_to_wl_2 = lambda x: x+1
+            self._wl_to_pixel_2 = lambda x: x-1
         else:
             self._pixel_to_wl_1 = pixel_to_wl_1
             self._wl_to_pixel_1 = wl_to_pixel_1
@@ -162,23 +161,20 @@ class BiphotonSpectrum:
 
         fit1 = linregress(bins1, wls)
         fit2 = linregress(bins2, wls)
-
-        # TODO: remove and use a real calibration
-        # this is _almost_ right, since this was w/ 75nm bandwidth and now we are at 150nm
         
-        pix_to_f_1 = lambda p: (2*fit1.slope * p + fit1.intercept - fit1.slope*112)
-        pix_to_f_2 = lambda p: (2*fit2.slope * p + fit2.intercept - fit1.slope*112)
+        pix_to_wl_1 = lambda p: (fit1.slope * p + fit1.intercept)
+        pix_to_wl_2 = lambda p: (fit2.slope * p + fit2.intercept)
 
-        f_to_pix_1 = lambda f: ((f - fit1.intercept)/fit1.slope/2)
-        f_to_pix_2 = lambda f: ((f - fit2.intercept)/fit2.slope/2)
+        wl_to_pix_1 = lambda f: ((f - fit1.intercept)/fit1.slope)
+        wl_to_pix_2 = lambda f: ((f - fit2.intercept)/fit2.slope)
 
-        self._calibration = BiphotonCalibration(pix_to_f_1, f_to_pix_1, pix_to_f_2, f_to_pix_2)
+        self._calibration = BiphotonCalibration(pix_to_wl_1, wl_to_pix_1, pix_to_wl_2, wl_to_pix_2)
 
     def filter_diagonal(self, num_sigma = np.inf):
         self._diag_min = -np.inf
         self._diag_max = np.inf
 
-        _, hist_sum, _, f_sum = self.diagonal_projections()
+        _, hist_sum, _, f_sum, _, _ = self.diagonal_projections()
         
         peak_ix = find_peaks(hist_sum, height=np.max(hist_sum)*0.9)[0][0]
         f0 = f_sum[peak_ix]
@@ -309,7 +305,7 @@ class BiphotonSpectrum:
 
         return par_indep_a, par_indep_b, image
     
-    def diagonal_projections(self):
+    def diagonal_projections(self, f_diff_edges=None, f_sum_edges=None):
         x_bins = self._beams._x_bins
         y_bins = self._beams._y_bins
 
@@ -338,16 +334,27 @@ class BiphotonSpectrum:
         coincs_a = coincs_a[coincs_within_filter]
         coincs_b = coincs_b[coincs_within_filter]
 
-        hist_diff, diff_edges = np.histogram(bins_a[coincs_a] - bins_b[coincs_b], bins=(self._size*2 - 1))
-        hist_sum, sum_edges = np.histogram(bins_a[coincs_a] + bins_b[coincs_b], bins=(self._size*2 - 1))
+        hist_diff = None
+        diff_edges = None
+        hist_sum = None
+        sum_edges = None
 
-        return hist_diff, hist_sum, (diff_edges[1:] + diff_edges[:-1])/2, (sum_edges[1:] + sum_edges[:-1])/2
+        if f_diff_edges is None: 
+            hist_diff, diff_edges = np.histogram(bins_a[coincs_a] - bins_b[coincs_b], bins=(self._size*2 - 1))
+        else:
+            hist_diff, diff_edges = np.histogram(bins_a[coincs_a] - bins_b[coincs_b], bins=f_diff_edges)
+        
+        if f_sum_edges is None:
+            hist_sum, sum_edges = np.histogram(bins_a[coincs_a] + bins_b[coincs_b], bins=(self._size*2 - 1))
+        else:
+            hist_sum, sum_edges = np.histogram(bins_a[coincs_a] + bins_b[coincs_b], bins=f_sum_edges)
 
-def yingwen_plot(dirname, loader : TpxLoader, mask_a, mask_b, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf]):
+        return hist_diff, hist_sum, (diff_edges[1:] + diff_edges[:-1])/2, (sum_edges[1:] + sum_edges[:-1])/2, diff_edges, sum_edges
+
+def yingwen_plot(dirname, loader : TpxLoader, mask_a, mask_b, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf], max_df=None):
     file_list = utils.all_tpx3_in_dir(dirname)
-    lines = np.zeros((len(file_list), 2*TPX_SIZE * superresolution - 1))
+    lines = []
     freqs = None
-
 
     has_config_file = os.path.exists(dirname + '/scan.config.txt')
     travel_dist : float
@@ -364,22 +371,40 @@ def yingwen_plot(dirname, loader : TpxLoader, mask_a, mask_b, superresolution=1,
                     stage_end = float(l[1])
             
             travel_dist = stage_end - stage_start
+    
+    if not has_config_file:
+        print(f"Warning: directory {dirname} does not contain a scan.config.txt file; cannot determine HOM delays")
 
-    for ix in tqdm(range(len(file_list)), desc="Generating Yingwen Plot"):
-        img = loader.load(file_list[ix])
+    f_diff_edges = None
+
+    for f in tqdm(file_list, desc="Generating Yingwen Plot"):
+        img = loader.load(f)
         img.set_coincidence_window(coincidence_window[0], coincidence_window[1])
 
         beams = TwinBeam(img, mask_a, mask_b, superresolution=superresolution)
         bispec = BiphotonSpectrum(beams)
 
-        bispec.load_calibration(calibration_file)
+        if calibration_file is not None:
+            bispec.load_calibration(calibration_file)
+        
         bispec._diag_min = diag_filter[0]
         bispec._diag_max = diag_filter[1]
 
-        hist_diff, _, f_diff, _ = bispec.diagonal_projections()
+        hist_diff = None
+        f_diff = None
 
-        lines[ix,:] = hist_diff
+        if max_df is not None:
+            f_diff_edges = np.linspace(-max_df, max_df, 2*bispec._size)
+
+        if f_diff_edges is None:
+            hist_diff, _, f_diff, _, f_diff_edges, _ = bispec.diagonal_projections()
+        else:
+            hist_diff, _, f_diff, _, f_diff_edges, _ = bispec.diagonal_projections(f_diff_edges=f_diff_edges)
+
+        lines.append(hist_diff)
         freqs = f_diff
+    
+    lines = np.array(lines)
 
     delays = None
     if has_config_file:
@@ -388,3 +413,27 @@ def yingwen_plot(dirname, loader : TpxLoader, mask_a, mask_b, superresolution=1,
         delays = np.arange(0, len(file_list))
     
     return delays*1000, freqs*1e-12, lines
+
+def gen_calibration(loader : TpxLoader, fname, output, fit, orientation:Literal['horizontal', 'vertical']='horizontal', superresolution : int = 1):
+    img = loader.load(fname)
+    plot = img.to_2d_image('singles')
+
+    line1, line2 = img.fit_lines(orientation)
+    beams = TwinBeam(img, line1, line2, superresolution, ignore_coincs=True)
+
+    bispec = BiphotonSpectrum(beams)
+
+    x1, x2, spec1, spec2 = bispec.singles_spectrum()
+
+    peaks1 = find_peaks(spec1, height=np.mean(spec1), distance=3)[0]
+    peaks2 = find_peaks(spec2, height=np.mean(spec2), distance=3)[0]
+
+    if len(peaks1) != len(fit):
+        raise RuntimeError(f"Found {len(peaks1)} peaks in line 1, expected {len(fit)}")
+    if len(peaks2) != len(fit):
+        raise RuntimeError(f"Found {len(peaks2)} peaks in line 2, expected {len(fit)}")
+
+    with open(output, 'w') as f:
+        f.write('Wavelength [nm], Bin 1 [px], Bin 2 [px]\n')
+        for ix in range(len(fit)):
+            f.write(f"{fit[ix]}, {peaks1[ix]/superresolution}, {peaks2[ix]/superresolution}\n")

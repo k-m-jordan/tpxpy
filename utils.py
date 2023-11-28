@@ -1,7 +1,6 @@
 import os
 import shutil
 from glob import glob
-from tqdm import tqdm
 
 from loader import CACHE_VERSION
 
@@ -39,7 +38,7 @@ def clear_cluster_cache(dirname) -> None:
     shutil.rmtree(cache_dir, ignore_errors=True)
 
 def all_tpx3_in_dir(dirname):
-    return glob(dirname + "/*.tpx3")
+    return sorted(glob(dirname + "/*.tpx3"))
 
 # reorients a 2D ndarray so that it plots properly with pyplot.imshow(_, origin='lower')
 def orient(data : np.ndarray):

@@ -12,7 +12,6 @@ from cupy import asnumpy
 
 from collections import namedtuple
 
-from glob import glob
 from tqdm.auto import tqdm
 
 from scipy.signal import find_peaks, peak_widths
@@ -526,7 +525,7 @@ class TpxLoader:
     def cache_all_files(self, dirname, use_existing_cache=True, show_pbar=True) -> None:
         global CACHE_VERSION
 
-        file_list = glob(dirname + "/*.tpx3")
+        file_list = utils.all_tpx3_in_dir(dirname)
 
         cache_dir = dirname + "/.tpxcache"
 
