@@ -351,7 +351,7 @@ class BiphotonSpectrum:
 
         return hist_diff, hist_sum, (diff_edges[1:] + diff_edges[:-1])/2, (sum_edges[1:] + sum_edges[:-1])/2, diff_edges, sum_edges
 
-def yingwen_plot(dirname, loader : TpxLoader, mask_a, mask_b, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf], max_df=None):
+def yingwen_plot(dirname, loader : TpxLoader, mask_a, mask_b, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf]):
     file_list = utils.all_tpx3_in_dir(dirname)
     lines = []
     freqs = None
@@ -375,8 +375,6 @@ def yingwen_plot(dirname, loader : TpxLoader, mask_a, mask_b, superresolution=1,
     if not has_config_file:
         print(f"Warning: directory {dirname} does not contain a scan.config.txt file; cannot determine HOM delays")
 
-    f_diff_edges = None
-
     for f in tqdm(file_list, desc="Generating Yingwen Plot"):
         img = loader.load(f)
         img.set_coincidence_window(coincidence_window[0], coincidence_window[1])
@@ -386,6 +384,13 @@ def yingwen_plot(dirname, loader : TpxLoader, mask_a, mask_b, superresolution=1,
 
         if calibration_file is not None:
             bispec.load_calibration(calibration_file)
+
+        min_wl = min(bispec._calibration._pixel_to_wl_1(0), bispec._calibration._pixel_to_wl_2(0))
+        max_wl = max(bispec._calibration._pixel_to_wl_1(TPX_SIZE-1), bispec._calibration._pixel_to_wl_2(TPX_SIZE-1))
+
+        min_f = utils.c/max_wl
+        max_f = utils.c/min_wl
+        df = max_f - min_f
         
         bispec._diag_min = diag_filter[0]
         bispec._diag_max = diag_filter[1]
@@ -393,13 +398,9 @@ def yingwen_plot(dirname, loader : TpxLoader, mask_a, mask_b, superresolution=1,
         hist_diff = None
         f_diff = None
 
-        if max_df is not None:
-            f_diff_edges = np.linspace(-max_df, max_df, 2*bispec._size)
+        f_diff_edges = np.linspace(-df, df, bispec._size)
 
-        if f_diff_edges is None:
-            hist_diff, _, f_diff, _, f_diff_edges, _ = bispec.diagonal_projections()
-        else:
-            hist_diff, _, f_diff, _, f_diff_edges, _ = bispec.diagonal_projections(f_diff_edges=f_diff_edges)
+        hist_diff, _, f_diff, _, f_diff_edges, _ = bispec.diagonal_projections(f_diff_edges=f_diff_edges)
 
         lines.append(hist_diff)
         freqs = f_diff

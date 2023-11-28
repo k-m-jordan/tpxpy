@@ -5,7 +5,7 @@ from analysis import TwinBeam, BiphotonSpectrum, yingwen_plot, gen_calibration
 import matplotlib.pyplot as plt
 import numpy as np
 
-dirname = "E:/Projects/SpectralHOM/Timepix/2023-11-24 new alignment/sinc"
+dirname = "E:/Projects/SpectralHOM/Timepix/2023-11-24 new alignment/vnc"
 superres = 2 # scales the number of bins used for centroids; 1 = camera resolution (256x256); highly experimental
 persist_cache = True
 
@@ -32,13 +32,13 @@ if __name__ == '__main__':
     bispec.load_calibration(calibration_name)
     diag_filter = bispec.filter_diagonal(5)
 
-    delays, freqs, yplot = yingwen_plot(dirname, tpxl, line1, line2, superres, (0, 10), calibration_file=calibration_name, diag_filter=diag_filter, max_df=70805111622033.5)
+    delays, freqs, yplot = yingwen_plot(dirname, tpxl, line1, line2, superres, (0, 10), calibration_file=calibration_name, diag_filter=diag_filter)
 
     plt.figure(figsize=(12,6))
     plt.imshow(yplot, origin='lower', extent=[freqs[0], freqs[-1], delays[0], delays[-1]], aspect='auto')
     plt.xlabel('Frequency Difference [THz]')
     plt.ylabel('HOM Delay [um]')
-    plt.savefig('./yingwen_sinc.png')
+    plt.savefig('./yingwen_vnc.png')
 
     # cleanup
     if not persist_cache:
