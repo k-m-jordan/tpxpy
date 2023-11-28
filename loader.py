@@ -1,4 +1,4 @@
-import utils
+from tpxpy import utils
 
 import os
 os.environ["TEMP"] = "C:/tmp"

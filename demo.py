@@ -1,6 +1,6 @@
 import utils
 from loader import TpxLoader
-from analysis import TwinBeam, BiphotonSpectrum, yingwen_plot, gen_calibration
+from analysis import TwinBeam, BiphotonSpectrum, YingwenPlot, gen_calibration
 
 import matplotlib.pyplot as plt
 import numpy as np

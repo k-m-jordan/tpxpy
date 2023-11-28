@@ -2,7 +2,7 @@ import os
 import shutil
 from glob import glob
 
-from loader import CACHE_VERSION
+from tpxpy.loader import CACHE_VERSION
 
 import numpy as np
 

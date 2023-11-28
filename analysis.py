@@ -1,5 +1,5 @@
-import utils
-from loader import TpxLoader, TpxImage, TPX_SIZE
+from tpxpy import utils
+from tpxpy.loader import TpxLoader, TpxImage, TPX_SIZE
 
 import numpy as np
 from scipy.stats import linregress
@@ -10,6 +10,29 @@ from typing import Literal
 from tqdm import tqdm
 
 import os
+
+def gen_calibration(loader : TpxLoader, fname, output, fit, orientation:Literal['horizontal', 'vertical']='horizontal', superresolution : int = 1):
+    img = loader.load(fname)
+
+    line1, line2 = img.fit_lines(orientation)
+    beams = TwinBeam(img, line1, line2, superresolution, ignore_coincs=True)
+
+    bispec = BiphotonSpectrum(beams)
+
+    _, _, spec1, spec2 = bispec.singles_spectrum()
+
+    peaks1 = find_peaks(spec1, height=np.mean(spec1), distance=3)[0]
+    peaks2 = find_peaks(spec2, height=np.mean(spec2), distance=3)[0]
+
+    if len(peaks1) != len(fit):
+        raise RuntimeError(f"Found {len(peaks1)} peaks in line 1, expected {len(fit)}")
+    if len(peaks2) != len(fit):
+        raise RuntimeError(f"Found {len(peaks2)} peaks in line 2, expected {len(fit)}")
+
+    with open(output, 'w') as f:
+        f.write('Wavelength [nm], Bin 1 [px], Bin 2 [px]\n')
+        for ix in range(len(fit)):
+            f.write(f"{fit[ix]}, {peaks1[ix]/superresolution}, {peaks2[ix]/superresolution}\n")
 
 class TwinBeam:
 
@@ -351,90 +374,84 @@ class BiphotonSpectrum:
 
         return hist_diff, hist_sum, (diff_edges[1:] + diff_edges[:-1])/2, (sum_edges[1:] + sum_edges[:-1])/2, diff_edges, sum_edges
 
-def yingwen_plot(dirname, loader : TpxLoader, mask_a, mask_b, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf]):
-    file_list = utils.all_tpx3_in_dir(dirname)
-    lines = []
-    freqs = None
+class SRHomScan:
+    def __init__(self, dirname, loader : TpxLoader, mask_a, mask_b, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf]):
+        file_list = utils.all_tpx3_in_dir(dirname)
+        lines = []
+        freqs = None
 
-    has_config_file = os.path.exists(dirname + '/scan.config.txt')
-    travel_dist : float
-    if has_config_file:
-        with open(dirname + '/scan.config.txt', "r") as f:
-            file_lines = f.readlines()
-            config_info = [l[:-1].split(':') for l in file_lines]
-            stage_start = None
-            stage_end = None
-            for l in config_info:
-                if l[0] == 'Stage start (mm)':
-                    stage_start = float(l[1])
-                elif l[0] == 'Stage stop (mm)':
-                    stage_end = float(l[1])
-            
-            travel_dist = stage_end - stage_start
-    
-    if not has_config_file:
-        print(f"Warning: directory {dirname} does not contain a scan.config.txt file; cannot determine HOM delays")
-
-    for f in tqdm(file_list, desc="Generating Yingwen Plot"):
-        img = loader.load(f)
-        img.set_coincidence_window(coincidence_window[0], coincidence_window[1])
-
-        beams = TwinBeam(img, mask_a, mask_b, superresolution=superresolution)
-        bispec = BiphotonSpectrum(beams)
-
-        if calibration_file is not None:
-            bispec.load_calibration(calibration_file)
-
-        min_wl = min(bispec._calibration._pixel_to_wl_1(0), bispec._calibration._pixel_to_wl_2(0))
-        max_wl = max(bispec._calibration._pixel_to_wl_1(TPX_SIZE-1), bispec._calibration._pixel_to_wl_2(TPX_SIZE-1))
-
-        min_f = utils.c/max_wl
-        max_f = utils.c/min_wl
-        df = max_f - min_f
+        has_config_file = os.path.exists(dirname + '/scan.config.txt')
+        travel_dist : float
+        if has_config_file:
+            with open(dirname + '/scan.config.txt', "r") as f:
+                file_lines = f.readlines()
+                config_info = [l[:-1].split(':') for l in file_lines]
+                stage_start = None
+                stage_end = None
+                for l in config_info:
+                    if l[0] == 'Stage start (mm)':
+                        stage_start = float(l[1])
+                    elif l[0] == 'Stage stop (mm)':
+                        stage_end = float(l[1])
+                
+                travel_dist = stage_end - stage_start
         
-        bispec._diag_min = diag_filter[0]
-        bispec._diag_max = diag_filter[1]
+        if not has_config_file:
+            print(f"Warning: directory {dirname} does not contain a scan.config.txt file; cannot determine HOM delays")
 
-        hist_diff = None
-        f_diff = None
+        for f in tqdm(file_list, desc="Generating Yingwen Plot"):
+            img = loader.load(f)
+            img.set_coincidence_window(coincidence_window[0], coincidence_window[1])
 
-        f_diff_edges = np.linspace(-df, df, bispec._size)
+            beams = TwinBeam(img, mask_a, mask_b, superresolution=superresolution)
+            bispec = BiphotonSpectrum(beams)
 
-        hist_diff, _, f_diff, _, f_diff_edges, _ = bispec.diagonal_projections(f_diff_edges=f_diff_edges)
+            if calibration_file is not None:
+                bispec.load_calibration(calibration_file)
 
-        lines.append(hist_diff)
-        freqs = f_diff
-    
-    lines = np.array(lines)
+            min_wl = min(bispec._calibration._pixel_to_wl_1(0), bispec._calibration._pixel_to_wl_2(0))
+            max_wl = max(bispec._calibration._pixel_to_wl_1(TPX_SIZE-1), bispec._calibration._pixel_to_wl_2(TPX_SIZE-1))
 
-    delays = None
-    if has_config_file:
-        delays = np.linspace(0, 1, len(file_list)) * travel_dist
-    else:
-        delays = np.arange(0, len(file_list))
-    
-    return delays*1000, freqs*1e-12, lines
+            min_f = utils.c/max_wl
+            max_f = utils.c/min_wl
+            df = max_f - min_f
+            
+            bispec._diag_min = diag_filter[0]
+            bispec._diag_max = diag_filter[1]
 
-def gen_calibration(loader : TpxLoader, fname, output, fit, orientation:Literal['horizontal', 'vertical']='horizontal', superresolution : int = 1):
-    img = loader.load(fname)
-    plot = img.to_2d_image('singles')
+            hist_diff = None
+            f_diff = None
 
-    line1, line2 = img.fit_lines(orientation)
-    beams = TwinBeam(img, line1, line2, superresolution, ignore_coincs=True)
+            f_diff_edges = np.linspace(-df, df, bispec._size)
 
-    bispec = BiphotonSpectrum(beams)
+            hist_diff, _, f_diff, _, f_diff_edges, _ = bispec.diagonal_projections(f_diff_edges=f_diff_edges)
 
-    x1, x2, spec1, spec2 = bispec.singles_spectrum()
+            lines.append(hist_diff)
+            freqs = f_diff
+        
+        lines = np.array(lines)
 
-    peaks1 = find_peaks(spec1, height=np.mean(spec1), distance=3)[0]
-    peaks2 = find_peaks(spec2, height=np.mean(spec2), distance=3)[0]
+        delays = None
+        if has_config_file:
+            delays = np.linspace(0, 1, len(file_list)) * travel_dist
+        else:
+            delays = np.arange(0, len(file_list))
 
-    if len(peaks1) != len(fit):
-        raise RuntimeError(f"Found {len(peaks1)} peaks in line 1, expected {len(fit)}")
-    if len(peaks2) != len(fit):
-        raise RuntimeError(f"Found {len(peaks2)} peaks in line 2, expected {len(fit)}")
+        self._dirname = dirname
+        self._loader = loader
+        self._mask_a = mask_a
+        self._mask_b = mask_b
+        self._superresolution = superresolution
+        self._coinc_window = coincidence_window
+        self._calib_file = calibration_file
+        self._diag_filter = diag_filter
 
-    with open(output, 'w') as f:
-        f.write('Wavelength [nm], Bin 1 [px], Bin 2 [px]\n')
-        for ix in range(len(fit)):
-            f.write(f"{fit[ix]}, {peaks1[ix]/superresolution}, {peaks2[ix]/superresolution}\n")
+        self._delays = delays
+        self._freqs = freqs
+        self._yplot = lines
+
+    def yingwen_plot(self):
+        return self._delays, self._freqs, self._yplot
+
+    def fit_yingwen_plot(self):
+        print('here')
