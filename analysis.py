@@ -2,8 +2,11 @@ from tpxpy import utils
 from tpxpy.loader import TpxLoader, TpxImage, TPX_SIZE
 
 import numpy as np
+from scipy.optimize import curve_fit
 from scipy.stats import linregress
 from scipy.signal import find_peaks, peak_widths
+
+from numpy.fft import fft, fftshift, fftfreq, fft2
 
 from typing import Literal
 
@@ -248,7 +251,7 @@ class BiphotonSpectrum:
         bins_a = self._calibration._pixel_to_wl_1(par_pixels)
         bins_b = self._calibration._pixel_to_wl_2(par_pixels)
 
-        c = 299792458
+        c = utils.c
 
         if type == "wavelength":
             pass # nothing to do
@@ -286,19 +289,30 @@ class BiphotonSpectrum:
             par_pixels = y_bins.astype(np.float64) / superresolution
 
         pixels = np.linspace(-0.5/superresolution,TPX_SIZE-0.5/superresolution,self._size+1)
+
         par_indep_a = self._calibration._pixel_to_wl_1(pixels)
         par_indep_b = self._calibration._pixel_to_wl_2(pixels)
 
         bins_a = self._calibration._pixel_to_wl_1(par_pixels)
         bins_b = self._calibration._pixel_to_wl_2(par_pixels)
 
-        c = 299792458
+        c = utils.c
 
         if type == "wavelength":
             pass # nothing to do
         elif type == "frequency":
-            par_indep_a = c / par_indep_a
-            par_indep_b = c / par_indep_b
+            minwl_a = par_indep_a[0]
+            maxwl_a = par_indep_a[-1]
+            minwl_b = par_indep_b[0]
+            maxwl_b = par_indep_b[-1]
+
+            minf_a = c/maxwl_a
+            maxf_a = c/minwl_a
+            minf_b = c/maxwl_b
+            maxf_b = c/minwl_b
+
+            par_indep_a = np.linspace(minf_a, maxf_a, self._size+1)
+            par_indep_b = np.linspace(minf_b, maxf_b, self._size+1)
 
             bins_a = c / bins_a
             bins_b = c / bins_b
@@ -327,6 +341,13 @@ class BiphotonSpectrum:
             raise ValueError("channels must be either 'ab' or 'aa' or 'bb'")
 
         return par_indep_a, par_indep_b, image
+
+    def jsi_fft(self, channels:Literal["ab","aa","bb"]="ab", type:Literal["wavelength", "frequency"]="frequency"):
+        f1, f2, jsi = self.joint_spectrum(channels=channels, type=type)
+        ft = fftshift(fft2(jsi))
+        t1 = fftshift(fftfreq(len(f1), np.mean(np.diff(f1))))
+        t2 = fftshift(fftfreq(len(f2), np.mean(np.diff(f2))))
+        return t1, t2, ft
     
     def diagonal_projections(self, f_diff_edges=None, f_sum_edges=None):
         x_bins = self._beams._x_bins
@@ -344,7 +365,7 @@ class BiphotonSpectrum:
         bins_a = self._calibration._pixel_to_wl_1(par_pixels)
         bins_b = self._calibration._pixel_to_wl_2(par_pixels)
 
-        c = 299792458
+        c = utils.c
 
         bins_a = c / bins_a
         bins_b = c / bins_b
@@ -374,6 +395,44 @@ class BiphotonSpectrum:
 
         return hist_diff, hist_sum, (diff_edges[1:] + diff_edges[:-1])/2, (sum_edges[1:] + sum_edges[:-1])/2, diff_edges, sum_edges
 
+def fit_osc(y, norm_freq):
+    x = np.arange(len(y))
+    
+    # used to fit Yingwen plots (also fits frequency)
+    def osc_fit_func_nofreq(x, amp, freq, phase, offset):
+        return amp*np.cos(2*np.pi*freq*x + phase) + offset
+    
+    # used to fit Yingwen plots
+    def osc_fit_func(x, amp, phase, offset):
+        return amp*np.cos(2*np.pi*norm_freq*x + phase) + offset
+
+    # use FFT to guess frequency
+    phase_y = np.angle(fftshift(fft(y))[len(y)//2:])
+    fft_y = np.abs(fftshift(fft(y))[len(y)//2:])
+    fft_f = fftshift(fftfreq(len(y)))[len(y)//2:]
+    fft_y[0] = 0
+    ix = np.argwhere(fft_y == np.max(fft_y))[0][0]
+    f0 = fft_f[ix]
+    phase0 = phase_y[ix]
+
+    # fit once to get better guesses (without using the known frequency)
+    param_base, _ = curve_fit(osc_fit_func_nofreq, x, y, p0=(np.max(y)/2, f0, phase0, np.mean(y)), maxfev=100000)
+
+    # now fit again to match the analytic frequency
+    param, cov = curve_fit(osc_fit_func, x, y, p0=(param_base[0], param_base[1], param_base[2]), maxfev=100000)
+
+    fit_y = osc_fit_func(x, param[0], param[1], param[2])
+    residual = np.sum(np.abs(y - fit_y))/np.sum(0.01+np.sqrt(y))
+
+    # ensure amplitudes are positive
+    if param[0] < 0:
+        param[0] = -param[0]
+        param[1] += np.pi
+    
+    param[1] %= (2*np.pi)
+
+    return param, cov, residual
+
 class SRHomScan:
     def __init__(self, dirname, loader : TpxLoader, mask_a, mask_b, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf]):
         file_list = utils.all_tpx3_in_dir(dirname)
@@ -390,16 +449,16 @@ class SRHomScan:
                 stage_end = None
                 for l in config_info:
                     if l[0] == 'Stage start (mm)':
-                        stage_start = float(l[1])
+                        stage_start = float(l[1])*1e-3
                     elif l[0] == 'Stage stop (mm)':
-                        stage_end = float(l[1])
+                        stage_end = float(l[1])*1e-3
                 
                 travel_dist = stage_end - stage_start
         
         if not has_config_file:
             print(f"Warning: directory {dirname} does not contain a scan.config.txt file; cannot determine HOM delays")
 
-        for f in tqdm(file_list, desc="Generating Yingwen Plot"):
+        for f in tqdm(file_list, desc="Processing SRHom Scan"):
             img = loader.load(f)
             img.set_coincidence_window(coincidence_window[0], coincidence_window[1])
 
@@ -451,7 +510,29 @@ class SRHomScan:
         self._yplot = lines
 
     def yingwen_plot(self):
-        return self._delays, self._freqs, self._yplot
+        return np.copy(self._delays), np.copy(self._freqs), np.copy(self._yplot)
 
     def fit_yingwen_plot(self):
-        print('here')
+        amp_list = np.empty(len(self._freqs))
+        freq_list = np.empty(len(self._freqs))
+        phase_list = np.empty(len(self._freqs))
+        offset_list = np.empty(len(self._freqs))
+        d_amp_list = np.empty(len(self._freqs))
+        d_freq_list = np.empty(len(self._freqs))
+        d_phase_list = np.empty(len(self._freqs))
+        d_offset_list = np.empty(len(self._freqs))
+
+        dz = np.mean(np.diff(self._delays))
+        norm_freqs = 2*dz*self._freqs/utils.c # analytic frequency expected from HOM math
+
+        for ix in range(len(self._freqs)): # iterate over all columns of Yingwen plot
+            col = self._yplot[:,ix]
+            p, cov, res = fit_osc(col, norm_freqs[ix])
+            amp_list[ix] = p[0]
+            phase_list[ix] = p[1]
+            offset_list[ix] = p[2]
+            d_amp_list[ix] = np.sqrt(cov[0,0])
+            d_phase_list[ix] = np.sqrt(cov[1,1])
+            d_offset_list[ix] = np.sqrt(cov[2,2])
+        
+        return amp_list, phase_list, offset_list, d_amp_list, d_phase_list, d_offset_list

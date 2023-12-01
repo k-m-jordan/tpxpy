@@ -6,7 +6,7 @@ from tpxpy.loader import CACHE_VERSION
 
 import numpy as np
 
-c = 299792458
+c = 299792458.0
 
 def get_cache_name(fname) -> str:
     dirname, filename = os.path.split(fname)
