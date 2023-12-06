@@ -2,8 +2,6 @@ import os
 import shutil
 from glob import glob
 
-from tpxpy.loader import CACHE_VERSION
-
 import numpy as np
 
 c = 299792458.0
@@ -17,6 +15,8 @@ def is_file_cached(fname) -> bool:
 
     if not os.path.exists(cache_fname):
         return False
+
+    from tpxpy.loader import CACHE_VERSION
     
     # check that the cache version number is up-to-date
     with np.load(cache_fname) as data:
