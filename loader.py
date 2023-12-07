@@ -3,12 +3,17 @@ from tpxpy import utils
 import os
 os.environ["TEMP"] = "C:/tmp"
 os.environ["PATH"] += ";C:/ProgramData/CUDA/v12.3/bin"
-import cupy as cp
 import numpy as np
 
 from typing import Literal
 
-from cupy import asnumpy
+if "TPXPY_NO_CUDA" in os.environ.keys():
+    import numpy as cp
+    def asnumpy(x):
+        return x
+else:
+    import cupy as cp
+    from cupy import asnumpy
 
 from collections import namedtuple
 
