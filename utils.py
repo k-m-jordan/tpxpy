@@ -1,6 +1,7 @@
 import os
 import shutil
 from glob import glob
+from typing import Literal
 
 import numpy as np
 
@@ -37,8 +38,25 @@ def clear_cluster_cache(dirname) -> None:
     cache_dir = dirname + "/.tpxcache"
     shutil.rmtree(cache_dir, ignore_errors=True)
 
-def all_tpx3_in_dir(dirname):
-    return sorted(glob(dirname + "/*.tpx3"))
+def all_tpx3_in_dir(dirname, include:Literal['cached','uncached','all']='all'):
+    if include == 'all':
+        return sorted(glob(dirname + "/*.tpx3"))
+    else:
+        files = sorted(glob(dirname + "/*.tpx3"))
+        cached_files = []
+        uncached_files = []
+        for f in files:
+            if is_file_cached(f):
+                cached_files.append(f)
+            else:
+                uncached_files.append(f)
+
+        if include == 'cached':
+            return cached_files
+        elif include == 'uncached':
+            return uncached_files
+        else:
+            raise ValueError("include must be one of 'cached', 'uncached', or 'all")
 
 # reorients a 2D ndarray so that it plots properly with pyplot.imshow(_, origin='lower')
 def orient(data : np.ndarray):
