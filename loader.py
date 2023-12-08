@@ -109,6 +109,67 @@ class TpxImage:
                 ),
                 data['fname']
             )
+
+    # Takes either a list of TpxImage or a list of string filenames
+    @staticmethod
+    def concatenate(image_list, loader=None, toa_spacing=1000):
+        if type(image_list[0]) == str and loader is None:
+            raise ValueError("Cannot load images when TpxLoader is None")
+
+        if loader is not None:
+            tpx_img_list = []
+            for imgname in tqdm(image_list, desc="Loading Tpx3 Files"):
+                tpx_img_list.append(loader.load(imgname))
+            image_list = tpx_img_list
+
+        num_packets = 0
+        num_clusters = 0
+
+        for img in image_list:
+            num_packets += img.num_packets()
+            num_clusters += img.num_clusters()
+
+        x = np.empty(num_packets)
+        y = np.empty(num_packets)
+        toa = np.empty(num_packets)
+        tot = np.empty(num_packets)
+        cluster_indices = np.empty(num_packets)
+        centroid_x = np.empty(num_clusters)
+        centroid_y = np.empty(num_clusters)
+        centroid_t = np.empty(num_clusters)
+
+        tot_calibration = image_list[0]._tot_calibration
+
+        packet_offset = 0
+        cluster_offset = 0
+        toa_offset = 0
+        ix_offset = 0
+
+        for img in tqdm(image_list, desc="Concatenating Tpx3 Files"):
+            pix_start = packet_offset
+            pix_end = packet_offset + img.num_packets()
+
+            cix_start = cluster_offset
+            cix_end = cluster_offset + img.num_clusters()
+
+            x[pix_start:pix_end] = img._x
+            y[pix_start:pix_end] = img._y
+            toa[pix_start:pix_end] = img._toa + toa_offset
+            tot[pix_start:pix_end] = img._tot
+            cluster_indices[pix_start:pix_end] = img._cluster_indices + ix_offset
+
+            centroid_x[cix_start:cix_end] = img._centroid_x
+            centroid_y[cix_start:cix_end] = img._centroid_y
+            centroid_t[cix_start:cix_end] = img._centroid_t + toa_offset
+
+            packet_offset += img.num_packets()
+            cluster_offset += img.num_clusters()
+            toa_offset = toa[pix_end-1] + toa_spacing
+            ix_offset = cluster_indices[pix_end-1] + 1
+
+        return TpxImage(
+            ClusteredImage(x, y, toa, tot, cluster_indices, centroid_x, centroid_y, centroid_t, tot_calibration),
+            image_list[0]._origin_fname)
     
     def num_packets(self) -> int:
         return len(self._x)
@@ -241,12 +302,12 @@ class TpxImage:
 
 class TpxLoader:
 
-    def __init__(self):
+    def __init__(self, compress_cache = False):
         self._orientation_rotation = 0
         self._orientation_flip_we = False
         self._orientation_flip_ns = False
 
-        self._compress_cache = False
+        self._compress_cache = compress_cache
 
         self._mask = np.full((TPX_SIZE,TPX_SIZE),True)
 

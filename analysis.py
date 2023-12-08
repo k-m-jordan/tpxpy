@@ -40,7 +40,10 @@ def gen_calibration(loader : TpxLoader, fname, output, fit, orientation:Literal[
 class TwinBeam:
 
     # superresolution: how finely to bin the clusters (=1 for camera resolution (256x256))
-    def __init__(self, image : TpxImage, channel_a_mask : np.ndarray, channel_b_mask : np.ndarray, superresolution : int = 1, ignore_coincs=False):
+    def __init__(self, image : TpxImage, channel_a_mask : np.ndarray = None, channel_b_mask : np.ndarray = None, superresolution : int = 1, ignore_coincs=False):
+        if channel_a_mask is None and channel_b_mask is None:
+            channel_a_mask, channel_b_mask = image.fit_lines(upscale_res=superresolution)
+
         if image.num_coincidences() == 0 and not ignore_coincs:
             raise ("Image has no coincidences; make sure coincidence window is set before calling TwinBeam()")
     
@@ -56,8 +59,11 @@ class TwinBeam:
         self._size = sz
         self._coincs = self._image._coincidence_indices
 
-        self._x_bins = np.floor(self._image._centroid_x * superresolution).astype(int)
-        self._y_bins = np.floor(self._image._centroid_y * superresolution).astype(int)
+        self._x_bins_float = self._image._centroid_x * superresolution
+        self._y_bins_float = self._image._centroid_y * superresolution
+
+        self._x_bins = np.floor(self._x_bins_float).astype(int)
+        self._y_bins = np.floor(self._y_bins_float).astype(int)
         
         if not ignore_coincs:
             self._coincs_aa = np.logical_and(
@@ -278,8 +284,8 @@ class BiphotonSpectrum:
     
     def joint_spectrum(self, channels:Literal["ab","aa","bb"]="ab", type:Literal["wavelength", "frequency"]="wavelength"):
         # determine the wavelengths/frequencies
-        x_bins = self._beams._x_bins
-        y_bins = self._beams._y_bins
+        x_bins = self._beams._x_bins_float
+        y_bins = self._beams._y_bins_float
 
         superresolution = (self._beams._superres)
 
