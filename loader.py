@@ -591,7 +591,11 @@ class TpxLoader:
     def cache_all_files(self, dirname, use_existing_cache=True, show_pbar=True) -> None:
         global CACHE_VERSION
 
-        file_list = utils.all_tpx3_in_dir(dirname, include='uncached')
+        file_list = None
+        if use_existing_cache:
+            file_list = utils.all_tpx3_in_dir(dirname, include='uncached')
+        else:
+            file_list = utils.all_tpx3_in_dir(dirname, include='cached')
         if len(file_list) == 0:
             return
 
