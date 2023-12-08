@@ -4,9 +4,9 @@ from tpxpy.loader import TpxLoader, TpxImage, TPX_SIZE
 import numpy as np
 from scipy.optimize import curve_fit
 from scipy.stats import linregress
-from scipy.signal import find_peaks, peak_widths
+from scipy.signal import find_peaks, peak_widths, savgol_filter
 
-from numpy.fft import fft, fftshift, fftfreq, fft2
+from numpy.fft import fft, fftshift, fftfreq, fft2, ifft2, ifftshift
 
 from typing import Literal
 
@@ -400,6 +400,36 @@ class BiphotonSpectrum:
             hist_sum, sum_edges = np.histogram(bins_a[coincs_a] + bins_b[coincs_b], bins=f_sum_edges)
 
         return hist_diff, hist_sum, (diff_edges[1:] + diff_edges[:-1])/2, (sum_edges[1:] + sum_edges[:-1])/2, diff_edges, sum_edges
+
+    def hom_hologram(self, channels:Literal['aa','bb','ab']='ab', savgol_len=21, savgol_order=7, sideband_width=2):
+        f1, f2, _ = self.joint_spectrum(channels=channels, type='frequency')
+        t1, t2, fft = self.jsi_fft(channels=channels, type='frequency')
+
+        size = fft.shape[0]
+
+        # sum along diagonal of FFT
+        proj = np.zeros(2*size-1)
+        norm = np.zeros(2*size-1)
+        for row in range(size):
+            proj[size-row-1:2*size-row-1] += np.abs(fft[row])
+            norm[size-row-1:2*size-row-1] += 1
+
+        proj /= norm
+        proj = savgol_filter(proj, int(savgol_len*(size/TPX_SIZE)), savgol_order)
+
+        proj_peaks = find_peaks(proj, height=max(proj)*0.3, rel_height=0.5)[0]
+        proj_peak_widths = peak_widths(proj, proj_peaks, rel_height=0.5)[0]
+
+        hologram_peak = proj_peaks[0]
+        hologram_width = proj_peak_widths[0]
+
+        mask_vals_x, mask_vals_y = np.mgrid[0:size, 0:size]
+        mask_vals = (size-mask_vals_x) + mask_vals_y
+        mask = np.logical_and(mask_vals < hologram_peak + sideband_width*hologram_width, mask_vals > hologram_peak - sideband_width*hologram_width)
+
+        fft[np.logical_not(mask)] = 0
+
+        return f1, f2, ifft2(ifftshift(fft))
 
 def fit_osc(y, norm_freq):
     x = np.arange(len(y))
