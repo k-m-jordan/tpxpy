@@ -470,10 +470,21 @@ def fit_osc(y, norm_freq):
     return param, cov, residual
 
 class SRHomScan:
-    def __init__(self, dirname, loader : TpxLoader, mask_a, mask_b, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf]):
+    def __init__(self, dirname, loader : TpxLoader, mask_a=None, mask_b=None, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf]):
         file_list = utils.all_tpx3_in_dir(dirname)
         lines = []
         freqs = None
+
+        if mask_a is None and mask_b is None:
+            file0 = loader.load(utils.all_tpx3_in_dir(dirname)[0])
+            file0.set_coincidence_window(coincidence_window[0], coincidence_window[1])
+            mask_a, mask_b = file0.fit_lines(upscale_res=superresolution)
+
+        elif mask_a is None or mask_b is None:
+            raise ValueError("SRHomScan(): Either provide no masks (to automatically fit file 0) or provide both masks")
+
+        if calibration_file is None:
+            print("Warning: using SRHomScan without providing a wavelength calibration; may give poor results")
 
         has_config_file = os.path.exists(dirname + '/scan.config.txt')
         travel_dist : float
@@ -514,9 +525,6 @@ class SRHomScan:
             bispec._diag_min = diag_filter[0]
             bispec._diag_max = diag_filter[1]
 
-            hist_diff = None
-            f_diff = None
-
             f_diff_edges = np.linspace(-df, df, bispec._size)
 
             hist_diff, _, f_diff, _, f_diff_edges, _ = bispec.diagonal_projections(f_diff_edges=f_diff_edges)
@@ -550,11 +558,9 @@ class SRHomScan:
 
     def fit_yingwen_plot(self):
         amp_list = np.empty(len(self._freqs))
-        freq_list = np.empty(len(self._freqs))
         phase_list = np.empty(len(self._freqs))
         offset_list = np.empty(len(self._freqs))
         d_amp_list = np.empty(len(self._freqs))
-        d_freq_list = np.empty(len(self._freqs))
         d_phase_list = np.empty(len(self._freqs))
         d_offset_list = np.empty(len(self._freqs))
 
