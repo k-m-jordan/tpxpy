@@ -473,7 +473,11 @@ class SRHomScan:
     def __init__(self, dirname, loader : TpxLoader, mask_a=None, mask_b=None, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf]):
         file_list = utils.all_tpx3_in_dir(dirname)
         lines = []
+        singles_a = []
+        singles_b = []
         freqs = None
+        freqs_a = None
+        freqs_b = None
 
         if mask_a is None and mask_b is None:
             file0 = loader.load(utils.all_tpx3_in_dir(dirname)[0])
@@ -529,10 +533,18 @@ class SRHomScan:
 
             hist_diff, _, f_diff, _, f_diff_edges, _ = bispec.diagonal_projections(f_diff_edges=f_diff_edges)
 
+            fa, fb, sa, sb = bispec.singles_spectrum(type='frequency')
+
             lines.append(hist_diff)
+            singles_a.append(sa)
+            singles_b.append(sb)
             freqs = f_diff
+            freqs_a = fa
+            freqs_b = fb
         
         lines = np.array(lines)
+        singles_a = np.array(singles_a)
+        singles_b = np.array(singles_b)
 
         delays = None
         if has_config_file:
@@ -551,7 +563,11 @@ class SRHomScan:
 
         self._delays = delays
         self._freqs = freqs
+        self._freqs_a = freqs_a
+        self._freqs_b = freqs_b
         self._yplot = lines
+        self._yplot_singles_a = singles_a
+        self._yplot_singles_b = singles_b
 
     def yingwen_plot(self):
         return np.copy(self._delays), np.copy(self._freqs), np.copy(self._yplot)
@@ -578,3 +594,6 @@ class SRHomScan:
             d_offset_list[ix] = np.sqrt(cov[2,2])
         
         return amp_list, phase_list, offset_list, d_amp_list, d_phase_list, d_offset_list
+
+    def yingwen_plot_singles(self):
+        return np.copy(self._delays), np.copy(self._freqs_a), np.copy(self._freqs_b), np.copy(self._yplot_singles_a), np.copy(self._yplot_singles_b)
