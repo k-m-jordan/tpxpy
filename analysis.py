@@ -225,11 +225,14 @@ class BiphotonSpectrum:
         x_bins = self._beams._x_bins
         y_bins = self._beams._y_bins
         singles = np.arange(self._image.num_clusters())
-        
+
         clusters_in_a = np.argwhere(mask_a[x_bins[singles], y_bins[singles]])
         clusters_in_b = np.argwhere(mask_b[x_bins[singles], y_bins[singles]])
 
         return len(clusters_in_a), len(clusters_in_b)
+
+    def num_coincidences(self):
+        return self._beams.num_coincidences()
 
     def singles_spectrum(self, type:Literal["frequency","wavelength"]="wavelength"):
         mask_a = self._beams._mask_a
