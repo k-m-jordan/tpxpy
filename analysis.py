@@ -473,8 +473,18 @@ def fit_osc(y, norm_freq):
     return param, cov, residual
 
 class SRHomScan:
-    def __init__(self, dirname, loader : TpxLoader, mask_a=None, mask_b=None, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf]):
-        file_list = utils.all_tpx3_in_dir(dirname)
+    # files can be either a directory name, or a list of filename
+    def __init__(self, files : str | list[str], loader : TpxLoader, mask_a=None, mask_b=None, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf]):
+        file_list : list[str]
+        dirname : str
+
+        if type(files) is str:
+            file_list = utils.all_tpx3_in_dir(files)
+            dirname = files
+        else:
+            file_list = files
+            dirname = os.path.dirname(file_list[0])
+
         lines = []
         singles_a = []
         singles_b = []
@@ -483,7 +493,7 @@ class SRHomScan:
         freqs_b = None
 
         if mask_a is None and mask_b is None:
-            file0 = loader.load(utils.all_tpx3_in_dir(dirname)[0])
+            file0 = loader.load(file_list[0])
             file0.set_coincidence_window(coincidence_window[0], coincidence_window[1])
             mask_a, mask_b = file0.fit_lines(upscale_res=superresolution)
 
@@ -512,7 +522,7 @@ class SRHomScan:
         if not has_config_file:
             print(f"Warning: directory {dirname} does not contain a scan.config.txt file; cannot determine HOM delays")
 
-        for f in tqdm(file_list, desc="Processing SRHom Scan"):
+        for f in tqdm(file_list, desc=f"Processing SRHom Scan ({os.path.basename(dirname)})", leave=False):
             img = loader.load(f)
             img.set_coincidence_window(coincidence_window[0], coincidence_window[1])
 

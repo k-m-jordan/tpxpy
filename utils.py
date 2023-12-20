@@ -38,7 +38,7 @@ def clear_cluster_cache(dirname) -> None:
     cache_dir = dirname + "/.tpxcache"
     shutil.rmtree(cache_dir, ignore_errors=True)
 
-def all_tpx3_in_dir(dirname, include:Literal['cached','uncached','all']='all'):
+def all_tpx3_in_dir(dirname, include:Literal['cached','uncached','all']='all') -> list[str]:
     if include == 'all':
         return sorted(glob(dirname + "/*.tpx3"))
     else:
