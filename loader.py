@@ -457,9 +457,17 @@ class TpxLoader:
 
         del raw_packets_gpu
 
-        # combine the three time values
+        # for long exposures (>26s), the spidr time will roll over. This counts rollovers to extend the time range
+        rollovers = cp.empty_like(spidr_time, dtype=le_uint8)
+        rollovers[1:] = cp.where(np.abs(spidr_time[:-1].astype(np.int32) - spidr_time[1:].astype(np.int32)) > 2**15, 1, 0).astype(le_uint8)
+        rollovers[1:] = cp.cumsum(rollovers[1:], dtype=le_uint8)
+        rollovers[0] = rollovers[1]
+        rollovers -= rollovers[0]
+
+        # combine the four time values
         full_toa = cp.empty(toa.shape, dtype=le_uint64)
-        cp.copyto(full_toa, spidr_time, 'same_kind')
+        cp.copyto(full_toa, rollovers, 'same_kind')
+        full_toa = (full_toa << 16) | spidr_time
         full_toa = (full_toa << 14) | toa
         full_toa = (full_toa << 4) | ftoa
 
@@ -578,8 +586,8 @@ class TpxLoader:
         return TpxImage(data, fname)
     
 
-    def load(self, fname) -> TpxImage:
-        is_cached = utils.is_file_cached(fname)
+    def load(self, fname, ignore_cache=False) -> TpxImage:
+        is_cached = utils.is_file_cached(fname) and not ignore_cache
         
         if is_cached:
             cache_name = utils.get_cache_name(fname)
