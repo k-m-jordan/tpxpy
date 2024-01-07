@@ -300,6 +300,10 @@ class TpxImage:
 
         return line1_mask, line2_mask
 
+    # in seconds
+    def exposure_time(self):
+        return (np.max(self._toa) - np.min(self._toa))*1.5625e-9
+
 class TpxLoader:
 
     def __init__(self, compress_cache = False):
@@ -519,81 +523,101 @@ class TpxLoader:
     
     
     # parses a raw *.tpx3 file into raw packet data (see loadtpx3_raw) and a list of cluster indices and centroids
-    def _loadtpx3(self, fname) -> TpxImage:
+    def _loadtpx3(self, fname, subdivisions_in_time:int=1):
+        images = []
         x, y, toa, tot = self._loadtpx3_raw(fname, return_gpu=True, sort_toa=True)
 
-        cluster_indices = cp.arange(len(x))
-        
-        for offset in range(1,self._cluster_range):
-            # find out whether i and i+offset are neighbours:
-            is_neighbour = cp.logical_and(
-                cp.logical_and(
-                    cp.abs(x[:-offset] - x[offset:]) <= self._space_window,    # neighbour along x?
-                    cp.abs(y[:-offset] - y[offset:]) <= self._space_window),   # neighbour along y?
-                    cp.abs(toa[:-offset] - toa[offset:]) <= (self._time_window // 1.25)) # neighbour along t?
+        total_exp_time = np.max(toa) - np.min(toa) # not in seconds
+        image_exp_time = total_exp_time / subdivisions_in_time
 
-            # neighbours belong to the same cluster
-            cluster_indices[offset:][is_neighbour] = cluster_indices[:-offset][is_neighbour]
+        for subdivision_ix in range(subdivisions_in_time):
+            image_start_toa = image_exp_time * subdivision_ix
+            image_stop_toa = image_exp_time * (subdivision_ix + 1)
 
-        # renumber cluster indices as 0, 1, 2, ...
-        cluster_indices = cp.searchsorted(cp.unique(cluster_indices), cluster_indices)
-        cluster_sort_ix = cp.argsort(cluster_indices)
-        x = x[cluster_sort_ix]
-        y = y[cluster_sort_ix]
-        toa = toa[cluster_sort_ix]
-        tot = tot[cluster_sort_ix]
-        cluster_indices = cluster_indices[cluster_sort_ix]
+            image_toa_mask = np.logical_and(toa >= image_start_toa, toa <= image_stop_toa)
 
-        num_clusters = cluster_indices[-1] + 1
+            image_x = x[image_toa_mask]
+            image_y = y[image_toa_mask]
+            image_toa = toa[image_toa_mask]
+            image_tot = tot[image_toa_mask]
 
-        # calculate cluster centroids
-        weighted_x = x.astype(cp.int32) * tot
-        weighted_y = y.astype(cp.int32) * tot
+            cluster_indices = cp.arange(len(image_x))
 
-        # find indices dividing the difference clusters
-        cluster_start_ix = cp.searchsorted(cluster_indices, cp.arange(0, num_clusters))
+            for offset in range(1,self._cluster_range):
+                # find out whether i and i+offset are neighbours:
+                is_neighbour = cp.logical_and(
+                    cp.logical_and(
+                        cp.abs(image_x[:-offset] - image_x[offset:]) <= self._space_window,    # neighbour along x?
+                        cp.abs(image_y[:-offset] - image_y[offset:]) <= self._space_window),   # neighbour along y?
+                        cp.abs(image_toa[:-offset] - image_toa[offset:]) <= (self._time_window // 1.25)) # neighbour along t?
 
-        # weighted sum over packet positions (weights are tot)
-        sum_x = cp.add.reduceat(weighted_x, cluster_start_ix)
-        sum_y = cp.add.reduceat(weighted_y, cluster_start_ix)
-        sum_weight = cp.add.reduceat(tot, cluster_start_ix)
+                # neighbours belong to the same cluster
+                cluster_indices[offset:][is_neighbour] = cluster_indices[:-offset][is_neighbour]
 
-        # centroid x, y
-        centroid_x = sum_x.astype(cp.float64) / sum_weight
-        centroid_y = sum_y.astype(cp.float64) / sum_weight
+            # renumber cluster indices as 0, 1, 2, ...
+            cluster_indices = cp.searchsorted(cp.unique(cluster_indices), cluster_indices)
+            cluster_sort_ix = cp.argsort(cluster_indices)
+            image_x = image_x[cluster_sort_ix]
+            image_y = image_y[cluster_sort_ix]
+            image_toa = image_toa[cluster_sort_ix]
+            image_tot = image_tot[cluster_sort_ix]
+            cluster_indices = cluster_indices[cluster_sort_ix]
 
-        # the time of a centroid should be the toa of the packet with the largest tot
-        tot_max = np.maximum.accumulate(asnumpy(tot.astype(cp.int64) + cluster_indices*TPX_TOT_MAX))
-        cluster_stop_ix = np.zeros(cluster_start_ix.shape, dtype=cluster_start_ix.dtype)
-        cluster_stop_ix[:-1] = asnumpy(cluster_start_ix)[1:] - 1
-        cluster_stop_ix[-1] = tot_max.size - 1
-        cluster_max_tot = tot_max[cluster_stop_ix]
-        cluster_max_tot_ix = np.searchsorted(tot_max, cluster_max_tot)
-        centroid_t = toa[cluster_max_tot_ix]
-        
-        data = ClusteredImage (
-            asnumpy(x),
-            asnumpy(y),
-            asnumpy(toa),
-            asnumpy(tot),
-            asnumpy(cluster_indices),
-            asnumpy(centroid_x),
-            asnumpy(centroid_y),
-            asnumpy(centroid_t),
-            self._tot_calibration
-        )
-        
-        return TpxImage(data, fname)
+            num_clusters = cluster_indices[-1] + 1
+
+            # calculate cluster centroids
+            weighted_x = image_x.astype(cp.int32) * image_tot
+            weighted_y = image_y.astype(cp.int32) * image_tot
+
+            # find indices dividing the difference clusters
+            cluster_start_ix = cp.searchsorted(cluster_indices, cp.arange(0, num_clusters))
+
+            # weighted sum over packet positions (weights are tot)
+            sum_x = cp.add.reduceat(weighted_x, cluster_start_ix)
+            sum_y = cp.add.reduceat(weighted_y, cluster_start_ix)
+            sum_weight = cp.add.reduceat(image_tot, cluster_start_ix)
+
+            # centroid x, y
+            centroid_x = sum_x.astype(cp.float64) / sum_weight
+            centroid_y = sum_y.astype(cp.float64) / sum_weight
+
+            # the time of a centroid should be the toa of the packet with the largest tot
+            tot_max = np.maximum.accumulate(asnumpy(image_tot.astype(cp.int64) + cluster_indices*TPX_TOT_MAX))
+            cluster_stop_ix = np.zeros(cluster_start_ix.shape, dtype=cluster_start_ix.dtype)
+            cluster_stop_ix[:-1] = asnumpy(cluster_start_ix)[1:] - 1
+            cluster_stop_ix[-1] = tot_max.size - 1
+            cluster_max_tot = tot_max[cluster_stop_ix]
+            cluster_max_tot_ix = np.searchsorted(tot_max, cluster_max_tot)
+            centroid_t = image_toa[cluster_max_tot_ix]
+
+            data = ClusteredImage (
+                asnumpy(image_x),
+                asnumpy(image_y),
+                asnumpy(image_toa),
+                asnumpy(image_tot),
+                asnumpy(cluster_indices),
+                asnumpy(centroid_x),
+                asnumpy(centroid_y),
+                asnumpy(centroid_t),
+                self._tot_calibration
+            )
+
+            images.append(TpxImage(data, fname))
+
+        if subdivisions_in_time == 1:
+            return images[0]
+        else:
+            return images
     
 
-    def load(self, fname, ignore_cache=False) -> TpxImage:
+    def load(self, fname, ignore_cache=False, subdivisions_in_time:int=1):
         is_cached = utils.is_file_cached(fname) and not ignore_cache
         
-        if is_cached:
+        if is_cached and subdivisions_in_time == 1:
             cache_name = utils.get_cache_name(fname)
             return TpxImage.load_cache(cache_name)
         else:
-            return self._loadtpx3(fname)
+            return self._loadtpx3(fname, subdivisions_in_time=subdivisions_in_time)
 
 
     def cache_all_files(self, dirname, use_existing_cache=True, show_pbar=True) -> None:
