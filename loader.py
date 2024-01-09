@@ -523,16 +523,24 @@ class TpxLoader:
     
     
     # parses a raw *.tpx3 file into raw packet data (see loadtpx3_raw) and a list of cluster indices and centroids
-    def _loadtpx3(self, fname, subdivisions_in_time:int=1):
+    def _loadtpx3(self, fname, subdivisions_in_time:int=1, skip_packets_begin:int=0, skip_packets_end:int=0):
         images = []
         x, y, toa, tot = self._loadtpx3_raw(fname, return_gpu=True, sort_toa=True)
+
+        packet_start = skip_packets_begin
+        packet_end = -skip_packets_end - 1
+
+        x = x[packet_start:packet_end]
+        y = y[packet_start:packet_end]
+        toa = toa[packet_start:packet_end]
+        tot = tot[packet_start:packet_end]
 
         total_exp_time = np.max(toa) - np.min(toa) # not in seconds
         image_exp_time = total_exp_time / subdivisions_in_time
 
         for subdivision_ix in range(subdivisions_in_time):
-            image_start_toa = image_exp_time * subdivision_ix
-            image_stop_toa = image_exp_time * (subdivision_ix + 1)
+            image_start_toa = np.min(toa) + image_exp_time * subdivision_ix
+            image_stop_toa = image_start_toa + image_exp_time
 
             image_toa_mask = np.logical_and(toa >= image_start_toa, toa <= image_stop_toa)
 
@@ -610,14 +618,15 @@ class TpxLoader:
             return images
     
 
-    def load(self, fname, ignore_cache=False, subdivisions_in_time:int=1):
+    def load(self, fname, ignore_cache=False, subdivisions_in_time:int=1, skip_packets_begin:int=0, skip_packets_end:int=0):
         is_cached = utils.is_file_cached(fname) and not ignore_cache
         
-        if is_cached and subdivisions_in_time == 1:
+        if is_cached and subdivisions_in_time == 1 and skip_packets_begin == 0 and skip_packets_end == 0:
             cache_name = utils.get_cache_name(fname)
             return TpxImage.load_cache(cache_name)
         else:
-            return self._loadtpx3(fname, subdivisions_in_time=subdivisions_in_time)
+            return self._loadtpx3(fname, subdivisions_in_time=subdivisions_in_time,
+                                  skip_packets_begin=skip_packets_begin, skip_packets_end=skip_packets_end)
 
 
     def cache_all_files(self, dirname, use_existing_cache=True, show_pbar=True) -> None:
