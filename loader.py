@@ -315,8 +315,8 @@ class TpxLoader:
 
         self._mask = np.full((TPX_SIZE,TPX_SIZE),True)
 
-        self._cluster_range = 5
-        self._space_window = 5
+        self._cluster_range = 15
+        self._space_window = 7
         self._time_window = 250
 
         self._tot_calibration_fname = None
