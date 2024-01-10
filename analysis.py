@@ -360,7 +360,7 @@ class BiphotonSpectrum:
         t2 = fftshift(fftfreq(len(f2), np.mean(np.diff(f2))))
         return t1, t2, ft
     
-    def diagonal_projections(self, f_diff_edges=None, f_sum_edges=None):
+    def diagonal_projections(self, f_diff_edges=None, f_sum_edges=None, channels:Literal["ab","aa","bb"]="ab"):
         x_bins = self._beams._x_bins
         y_bins = self._beams._y_bins
 
@@ -381,7 +381,7 @@ class BiphotonSpectrum:
         bins_a = c / bins_a
         bins_b = c / bins_b
 
-        coincs_a, coincs_b = self._beams.coincidence_indices()
+        coincs_a, coincs_b = self._beams.coincidence_indices(channels=channels)
 
         sum_bins = bins_b[coincs_b] + bins_a[coincs_a]
         coincs_within_filter = np.logical_and((sum_bins > self._diag_min), (sum_bins < self._diag_max))
@@ -476,7 +476,7 @@ def fit_osc(y, norm_freq):
 
 class SRHomScan:
     # files can be either a directory name, or a list of filename
-    def __init__(self, files : str | list[str], loader : TpxLoader, mask_a=None, mask_b=None, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf], files_are_pickled=False):
+    def __init__(self, files : str | list[str], loader : TpxLoader, mask_a=None, mask_b=None, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf], files_are_pickled=False, channels:Literal['aa', 'bb', 'ab']='ab'):
         file_list : list[str]
         dirname : str
 
@@ -555,7 +555,7 @@ class SRHomScan:
 
             f_diff_edges = np.linspace(-df, df, bispec._size)
 
-            hist_diff, _, f_diff, _, f_diff_edges, _ = bispec.diagonal_projections(f_diff_edges=f_diff_edges)
+            hist_diff, _, f_diff, _, f_diff_edges, _ = bispec.diagonal_projections(f_diff_edges=f_diff_edges, channels=channels)
 
             fa, fb, sa, sb = bispec.singles_spectrum(type='frequency')
 
@@ -581,6 +581,7 @@ class SRHomScan:
         self._mask_a = mask_a
         self._mask_b = mask_b
         self._superresolution = superresolution
+        self._channels = channels
         self._coinc_window = coincidence_window
         self._calib_file = calibration_file
         self._diag_filter = diag_filter
