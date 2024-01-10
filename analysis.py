@@ -12,6 +12,8 @@ from typing import Literal
 
 from tqdm import tqdm
 
+import pickle
+
 import os
 
 def gen_calibration(loader : TpxLoader, fname, output, fit, orientation:Literal['horizontal', 'vertical']='horizontal', superresolution : int = 1):
@@ -474,9 +476,18 @@ def fit_osc(y, norm_freq):
 
 class SRHomScan:
     # files can be either a directory name, or a list of filename
-    def __init__(self, files : str | list[str], loader : TpxLoader, mask_a=None, mask_b=None, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf]):
+    def __init__(self, files : str | list[str], loader : TpxLoader, mask_a=None, mask_b=None, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf], files_are_pickled=False):
         file_list : list[str]
         dirname : str
+
+        if files_are_pickled:
+            def load_func(fname):
+                with open(fname, 'rb') as fhandle:
+                    return pickle.load(fhandle)
+        else:
+            def load_func(fname):
+                return loader.load(fname)
+
 
         if type(files) is str:
             file_list = utils.all_tpx3_in_dir(files)
@@ -493,7 +504,7 @@ class SRHomScan:
         freqs_b = None
 
         if mask_a is None and mask_b is None:
-            file0 = loader.load(file_list[0])
+            file0 = load_func(file_list[0])
             file0.set_coincidence_window(coincidence_window[0], coincidence_window[1])
             mask_a, mask_b = file0.fit_lines(upscale_res=superresolution)
 
@@ -523,7 +534,7 @@ class SRHomScan:
             print(f"Warning: directory {dirname} does not contain a scan.config.txt file; cannot determine HOM delays")
 
         for f in tqdm(file_list, desc=f"Processing SRHom Scan ({os.path.basename(dirname)})", leave=False):
-            img = loader.load(f)
+            img = load_func(f)
             img.set_coincidence_window(coincidence_window[0], coincidence_window[1])
 
             beams = TwinBeam(img, mask_a, mask_b, superresolution=superresolution)
