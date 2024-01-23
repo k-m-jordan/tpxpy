@@ -538,7 +538,13 @@ class TpxLoader:
         total_exp_time = np.max(toa) - np.min(toa) # not in seconds
         image_exp_time = total_exp_time / subdivisions_in_time
 
-        for subdivision_ix in range(subdivisions_in_time):
+        loop_iter = None
+        if subdivisions_in_time > 1:
+            loop_iter = tqdm(range(subdivisions_in_time))
+        else:
+            loop_iter = range(subdivisions_in_time)
+
+        for subdivision_ix in loop_iter:
             image_start_toa = np.min(toa) + image_exp_time * subdivision_ix
             image_stop_toa = image_start_toa + image_exp_time
 

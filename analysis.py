@@ -476,7 +476,7 @@ def fit_osc(y, norm_freq):
 
 class SRHomScan:
     # files can be either a directory name, or a list of filename
-    def __init__(self, files : str | list[str], loader : TpxLoader, mask_a=None, mask_b=None, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf], files_are_pickled=False, channels:Literal['aa', 'bb', 'ab']='ab'):
+    def __init__(self, files : str | list[str], loader : TpxLoader, mask_a=None, mask_b=None, superresolution=1, coincidence_window = (0, 10), calibration_file = None, diag_filter = [-np.inf, np.inf], files_are_pickled=False):
         file_list : list[str]
         dirname : str
 
@@ -496,7 +496,9 @@ class SRHomScan:
             file_list = files
             dirname = os.path.dirname(file_list[0])
 
-        lines = []
+        ab_lines = []
+        aa_lines = []
+        bb_lines = []
         singles_a = []
         singles_b = []
         freqs = None
@@ -555,18 +557,24 @@ class SRHomScan:
 
             f_diff_edges = np.linspace(-df, df, bispec._size)
 
-            hist_diff, _, f_diff, _, f_diff_edges, _ = bispec.diagonal_projections(f_diff_edges=f_diff_edges, channels=channels)
+            ab_hist_diff, _, f_diff, _, f_diff_edges, _ = bispec.diagonal_projections(f_diff_edges=f_diff_edges, channels='ab')
+            aa_hist_diff, _, _, _, _, _ = bispec.diagonal_projections(f_diff_edges=f_diff_edges, channels='aa')
+            bb_hist_diff, _, _, _, _, _ = bispec.diagonal_projections(f_diff_edges=f_diff_edges, channels='bb')
 
             fa, fb, sa, sb = bispec.singles_spectrum(type='frequency')
 
-            lines.append(hist_diff)
+            ab_lines.append(ab_hist_diff)
+            aa_lines.append(aa_hist_diff)
+            bb_lines.append(bb_hist_diff)
             singles_a.append(sa)
             singles_b.append(sb)
             freqs = f_diff
             freqs_a = fa
             freqs_b = fb
         
-        lines = np.array(lines)
+        ab_lines = np.array(ab_lines)
+        aa_lines = np.array(aa_lines)
+        bb_lines = np.array(bb_lines)
         singles_a = np.array(singles_a)
         singles_b = np.array(singles_b)
 
@@ -581,7 +589,6 @@ class SRHomScan:
         self._mask_a = mask_a
         self._mask_b = mask_b
         self._superresolution = superresolution
-        self._channels = channels
         self._coinc_window = coincidence_window
         self._calib_file = calibration_file
         self._diag_filter = diag_filter
@@ -590,14 +597,24 @@ class SRHomScan:
         self._freqs = freqs
         self._freqs_a = freqs_a
         self._freqs_b = freqs_b
-        self._yplot = lines
+        self._yplot_ab = ab_lines
+        self._yplot_aa = aa_lines
+        self._yplot_bb = bb_lines
         self._yplot_singles_a = singles_a
         self._yplot_singles_b = singles_b
 
-    def yingwen_plot(self):
-        return np.copy(self._delays), np.copy(self._freqs), np.copy(self._yplot)
+    def yingwen_plot(self, channels : Literal['ab', 'aa', 'bb'] = 'ab'):
+        yplot = None
+        if channels == 'ab':
+            yplot = self._yplot_ab
+        elif channels == 'aa':
+            yplot = self._yplot_aa
+        elif channels == 'bb':
+            yplot = self._yplot_bb
 
-    def fit_yingwen_plot(self):
+        return np.copy(self._delays), np.copy(self._freqs), np.copy(yplot)
+
+    def fit_yingwen_plot(self, channels:Literal['ab','aa','bb']='ab'):
         amp_list = np.empty(len(self._freqs))
         phase_list = np.empty(len(self._freqs))
         offset_list = np.empty(len(self._freqs))
@@ -608,8 +625,16 @@ class SRHomScan:
         dz = np.mean(np.diff(self._delays))
         norm_freqs = 2*dz*self._freqs/utils.c # analytic frequency expected from HOM math
 
+        yplot = None
+        if channels == 'ab':
+            yplot = self._yplot_ab
+        elif channels == 'aa':
+            yplot = self._yplot_aa
+        elif channels == 'bb':
+            yplot = self._yplot_bb
+
         for ix in range(len(self._freqs)): # iterate over all columns of Yingwen plot
-            col = self._yplot[:,ix]
+            col = yplot[:,ix]
             p, cov, res = fit_osc(col, norm_freqs[ix])
             amp_list[ix] = p[0]
             phase_list[ix] = p[1]
