@@ -4,8 +4,6 @@ This package can be used to process raw *.tpx3 files output from a Timepix3 came
 
 This code was written for use in a Timepix-based biphoton spectrometer, and so has analysis functions meant for this purpose, such as spectral calibration. Parsing and clustering functionality may be useful in more general contexts.
 
-A brief example script is contained in `demo.py`. Additional functions can be found by browsing other files.
-
 ### Dependencies:
 - `cupy-cuda12x` (requires a modern NVIDIA GPU)
 - `numpy`
@@ -13,8 +11,31 @@ A brief example script is contained in `demo.py`. Additional functions can be fo
 - `scipy`
 - `tqdm`
 
+### Simple example
+```python
+from tpxpy.loader import TpxLoader, TpxImage
+
+from tkinter.filedialog import askopenfilename
+import matplotlib.pyplot as plt
+
+fname = askopenfilename()
+
+tpxl = TpxLoader()
+
+# for best results, you should create a ToT calibration file, which is camera-specific. For example,
+tpxl.generate_tot_calibration([fname,], 'tot_cal.txt') # can be generated from any .tpx3 image(s)
+tpxl.set_tot_calibration('tot_cal.txt')
+
+img = tpxl.load(fname)
+
+hist2d = img.to_2d_image()
+plt.imshow(hist2d)
+plt.show()
+```
+
 If you encounter any errors, report them to the maintainer of the repository by [email](mailto:kjordan@uottawa.ca).
 
 Related projects from our [lab](https://extremephotonics.com/):
 - [PixGUI](https://github.com/baf57/PixGUI) and [tpx3_toolkit](https://github.com/baf57/tpx3_toolkit): A Python-based tool for ghost imaging, with more focus on spatial correlation analysis.
 - [Spectral HOM Analysis Tool](https://github.com/k-m-jordan/JCEP-Spectral-HOM): A C++-based GUI for batch processing of Timepix files.
+

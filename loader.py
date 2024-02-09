@@ -315,7 +315,7 @@ class TpxLoader:
 
         self._mask = np.full((TPX_SIZE,TPX_SIZE),True)
 
-        self._cluster_range = 15
+        self._cluster_range = 100
         self._space_window = 7
         self._time_window = 250
 
@@ -540,7 +540,7 @@ class TpxLoader:
 
         loop_iter = None
         if subdivisions_in_time > 1:
-            loop_iter = tqdm(range(subdivisions_in_time))
+            loop_iter = tqdm(range(subdivisions_in_time), leave=False)
         else:
             loop_iter = range(subdivisions_in_time)
 
